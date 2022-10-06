@@ -19,6 +19,7 @@ from torch.optim import SGD
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 from loss import SCELoss
+from loss import Bootstrapping
 import labelnoise
 
 # 定义超参数
@@ -124,8 +125,8 @@ def plot_embedding(result, label, title):   #传入1083个2维数据，1083个�
 if __name__ == '__main__':
     batch_size = 256
     Dataset = functools.partial(labelnoise.MNISTNoisyLabels,
-                                   noise_type='symmetric',
-                                   noise_rate=0.6,
+                                   noise_type='asymmetric',
+                                   noise_rate=0.4,
                                    seed=12345)
     train_dataset = Dataset(root='./train',
                       train=True,
@@ -147,11 +148,12 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
     model = Model()
-    sgd = SGD(model.parameters(), lr=1e-1)
-    #loss_fn = CrossEntropyLoss()
-    loss_fn = SCELoss(alpha=0.1, beta=1.0, num_classes=10)
+    sgd = SGD(model.parameters(), lr=1e-1,weight_decay=1e-4)
+    loss_fn = CrossEntropyLoss()
+    #loss_fn = SCELoss(alpha=0.1, beta=1.0, num_classes=10)
+    #loss_fn = Bootstrapping(num_classes=10, t=0.05)
     all_epoch = 100
-
+    acc_array = np.array([])
     for current_epoch in range(all_epoch):
         model.train()
         for idx, (train_x, train_label) in enumerate(train_loader):
@@ -170,12 +172,22 @@ if __name__ == '__main__':
         device = torch.device("cpu")
         y_np = []
         z_np = []
+        predict_index = [0,0,0,0,0,0,0,0,0,0]
+        correct_num_index = [0,0,0,0,0,0,0,0,0,0]
+        #all_correct_num_index = [0,0,0,0,0,0,0,0,0,0]
+        #all_sample_num_index = [0,0,0,0,0,0,0,0,0,0]
         predict_label = np.array([])
+        
         for idx, (test_x, test_label) in enumerate(test_loader):
             predict_y = model(test_x.float()).detach()
             predict_y = np.argmax(predict_y, axis=-1)
             predict_label = np.append(predict_label, predict_y)
             current_correct_num = predict_y == test_label
+            #dim0 = predict_y.shape
+            for ii in range(16):
+                correct_num_index[int(test_label[ii])] = correct_num_index[int(test_label[ii])] + 1
+                if predict_y[ii] == test_label[ii]:
+                    predict_index[int(test_label[ii])] = predict_index[int(test_label[ii])] + 1
             all_correct_num += np.sum(current_correct_num.numpy(), axis=-1)
             all_sample_num += current_correct_num.shape[0]
             #test_x = test_x.to(device).view(-1, 784)
@@ -196,16 +208,22 @@ if __name__ == '__main__':
         #eval_label = y_np
         #eval_data = z_np
         #plotdistribution(eval_label,eval_data)
-        tsne = TSNE(n_components=2, init='pca', random_state=0)   #n_components将64维降到该维度，默认2；init设置embedding初始化方式，可选pca和random，pca要稳定些
-        #t0 = time()   #记录开始时间
-        tsne_data = torch.flatten(test_dataset.data, start_dim=1, end_dim=2)
-        result = tsne.fit_transform(tsne_data)   #进行降维，[1083,784]-->[1083,2]
-        fig = plot_embedding(result, predict_label,'t-SNE embedding of the digits')
+        
+        
         #fig = px.scatter(result, x=0, y=1, color=predict_label.astype(str),labels={'0': 'tsne-2d-one', '1': 'tsne-2d-two'})
-        plt.show(fig)
-        acc_array = np.array([])
+        
+        if current_epoch == 99:
+            tsne = TSNE(n_components=2, init='pca', random_state=0)   #n_components将64维降到该维度，默认2；init设置embedding初始化方式，可选pca和random，pca要稳定些
+            #t0 = time()   #记录开始时间
+            tsne_data = torch.flatten(test_dataset.data, start_dim=1, end_dim=2)
+            result = tsne.fit_transform(tsne_data)   #进行降维，[1083,784]-->[1083,2]
+            fig = plot_embedding(result, predict_label,'t-SNE embedding of the digits')
+            plt.show(fig)
+            
         acc = all_correct_num / all_sample_num
         acc_array = np.append(acc_array, acc)
+        for iii in range(10):
+            print('accuracy{}: {:.4f}'.format(iii , predict_index[iii] / correct_num_index[iii]))
         # acc_array是每个epoch训练结果组合的序列
         print('accuracy: {:.2f}'.format(acc))
 #        torch.save(model, 'models/mnist_{:.2f}.pkl'.format(acc))

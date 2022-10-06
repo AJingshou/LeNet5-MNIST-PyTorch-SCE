@@ -6,6 +6,11 @@ torchvision >= 0.1.8
 
 ## Hint
 This repo includes the mnist dataset.
+
+Run `train.py` 
+
+update t-SNE
+
 ## Accuracy
 
 
